@@ -1,5 +1,5 @@
 [package]
-name = "uart_test"
+name = "adc-isr-test"
 version = "1.0.0"
 authors = ["VladTyzhnevyi"]
 #edition = [2015]

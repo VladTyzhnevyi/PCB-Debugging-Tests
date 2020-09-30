@@ -16,7 +16,7 @@ extern crate cortex_m_rt;
 use cortex_m_rt::entry; //needed for the use of the entry attribute
 use cortex_m_rt::exception; //needed for the use of the exception attribute
 
-//#[macro_use(interrupt)]
+#[macro_use(interrupt)]
 extern crate tm4c129x;
 
 //const SYS_TICK_RELOAD_VALUE: u32 = 24000; //2.5kHz
@@ -33,6 +33,21 @@ static SEC_IRQ_COUNT: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 static MIN_IRQ_COUNT: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 static HOURS_IRQ_COUNT: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
+//* static variable to keep ADC values
+static IC_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0));
+static FBI_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0));
+static FV_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0)); 
+static FD_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0)); 
+static AV_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0)); 
+static FBV_SAMPLE: Mutex<Cell<u16>> = Mutex::new(Cell::new(0));
+
+//*device under test - choose ADC channel to test
+//const adc_ch_to_test:u8 = 1; //ch IC_sample 
+//const adc_ch_to_test:u8 = 2; //ch FBI_sample
+//const adc_ch_to_test:u8 = 3; //ch FV_sample
+//const adc_ch_to_test:u8 = 4; //ch FD_sample //not used in the current version of IonPak
+//const adc_ch_to_test:u8 = 5; //ch AV_sample
+const ADC_CH_TO_TEST:u8 = 6; //ch FBV_sample
 
 #[macro_export]
 macro_rules! print {
@@ -75,7 +90,9 @@ impl fmt::Write for UART0 {
 #[entry] //Attribute to declare the entry point of the program
 fn main() -> ! {
     board::init();
-    
+    board::start_sys_tick(SYS_TICK_RELOAD_VALUE);
+    board::start_adc();
+    /*
     let p = Peripherals::take().unwrap();
     let mut syst = p.SYST;
 
@@ -85,6 +102,7 @@ fn main() -> ! {
     syst.set_reload(SYS_TICK_RELOAD_VALUE-1); //timer wraps 4 times per 1s
     syst.enable_counter();
     syst.enable_interrupt();
+    */
 
     loop {     
         /*  
@@ -127,6 +145,27 @@ fn SysTick() {
         
         sys_tick_irq_count.set(sys_tick_irq_count.get() + 1);        
         if sys_tick_irq_count.get()==4{
+             //define ADC variables
+             let ic_sample  = IC_SAMPLE.borrow(cs);
+             let fbi_sample = FBI_SAMPLE.borrow(cs);
+             let fv_sample  = FV_SAMPLE.borrow(cs);
+             let fd_sample  = FD_SAMPLE.borrow(cs);
+             let av_sample  = AV_SAMPLE.borrow(cs);
+             let fbv_sample = FBV_SAMPLE.borrow(cs);
+             
+             match ADC_CH_TO_TEST {
+                 1 => println!("IC {}\r", ic_sample.get()),
+                 2 => println!("FBI {}\r", fbi_sample.get()),
+                 3 => println!("FV {}\r", fv_sample.get()),
+                 4 => println!("FD {}\r", fd_sample.get()),
+                 5 => println!("AV {}\r", av_sample.get()),
+                 6 => println!("FBV {}\r", fbv_sample.get()),
+                 _ => (),
+             }
+
+            let mut cp = unsafe { tm4c129x::CorePeripherals::steal() };
+            cp.NVIC.enable(tm4c129x::Interrupt::ADC0SS0);
+
             //LED on Launch development board
             let gpio_n = unsafe { &*tm4c129x::GPIO_PORTN::ptr() };
             gpio_n.data.modify(|r, w| w.data().bits(r.data().bits() ^ board::LED3));
@@ -146,8 +185,44 @@ fn SysTick() {
                 }
             }
             //println!("{:02}:{:02}\r", min_irq_count.get(), sec_irq_count.get());
-            print!(" {:02}:{:02}:{:02}\r", hours_irq_count.get(), min_irq_count.get(), sec_irq_count.get());
+            //print!(" {:02}:{:02}:{:02}\r", hours_irq_count.get(), min_irq_count.get(), sec_irq_count.get());
         }
         
     })
+}
+
+interrupt!(ADC0SS0, adc0_ss0);
+fn adc0_ss0() {
+    cortex_m::interrupt::free(|cs| {        
+        let adc0 = unsafe { &*tm4c129x::ADC0::ptr() };     
+        if adc0.ostat.read().ov0().bit() {
+            panic!("ADC FIFO overflowed")        
+        }
+        adc0.isc.write(|w| w.in0().bit(true));    
+
+        //save data into these static variables
+        // the FIFO buffer is constantly provided with the data
+        // the sampling is continuous adc0.emux.write(|w| w.em0().always()); //continuously sample, p1093
+        // it means that the data is provided continuously but it has to be read out immediately as the interrupt is active
+        //otherwise the new data will be discarded and oferflow will occur. It is impossible to recover after overflow, this is why 
+        //we use panic error handling and the programme is stopped
+        // the print out of data is given in SysTick() interrupt routine
+        let ic_sample  = IC_SAMPLE.borrow(cs);
+        let fbi_sample = FBI_SAMPLE.borrow(cs);
+        let fv_sample  = FV_SAMPLE.borrow(cs);
+        let fd_sample  = FD_SAMPLE.borrow(cs);
+        let av_sample  = AV_SAMPLE.borrow(cs);
+        let fbv_sample = FBV_SAMPLE.borrow(cs);
+        
+        ic_sample.set(adc0.ssfifo0.read().data().bits());
+        fbi_sample.set(adc0.ssfifo0.read().data().bits());
+        fv_sample.set(adc0.ssfifo0.read().data().bits()); 
+        fd_sample.set(adc0.ssfifo0.read().data().bits());
+        av_sample.set(adc0.ssfifo0.read().data().bits());
+        fbv_sample.set(adc0.ssfifo0.read().data().bits());
+        
+        //Toggle LED on every entrance in the interrupt routine
+        //let gpio_n = unsafe { &*tm4c129x::GPIO_PORTN::ptr() };            
+        //gpio_n.data.modify(|r, w| w.data().bits(r.data().bits() ^ 0x02));        
+    });
 }
