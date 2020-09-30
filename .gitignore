@@ -1,0 +1,21 @@
+**/*.rs.bk
+.#*
+.gdb_history
+#Cargo.lock
+target/
+target/debug
+target/release
+target/thumbv7em-none-eabihf/debug
+target/thumbv7em-none-eabihf/release/build
+target/thumbv7em-none-eabihf/release/deps
+target/thumbv7em-none-eabihf/release/examples
+target/thumbv7em-none-eabihf/release/incremental
+
+
+# editor files
+.vscode/*
+!.vscode/*.md
+!.vscode/*.svd
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json

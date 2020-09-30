@@ -1,0 +1,25 @@
+[package]
+name = "uart_test"
+version = "1.0.0"
+authors = ["VladTyzhnevyi"]
+#edition = [2015]
+
+[build-dependencies]
+walkdir = "1.0"
+
+[dependencies]
+libm = "0.1.2"
+cortex-m = { version = "0.5", features = ["const-fn"] }
+cortex-m-rt = "0.6"
+crc = { version = "1.7", default-features = false }
+tm4c129x = { version = "0.8", features = ["rt"] }
+
+[dependencies.smoltcp]
+git = "https://github.com/m-labs/smoltcp"
+rev = "cd893e6"
+features = ["proto-ipv4", "socket-tcp"]
+default-features = false
+
+[profile.release]
+lto = true
+debug = true
