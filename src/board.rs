@@ -6,11 +6,12 @@ pub const LED1: u8 = 0x10; // PK4 //red LED
 pub const LED2: u8 = 0x40; // PK6 //green LED
 
 pub const  LED3: u8 = 0x01; //PN0
-/*
+
 const HV_PWM: u8 = 0x01;  // PF0
 const FV_PWM: u8 = 0x04;  // PF2
 const FBV_PWM: u8 = 0x01; // PD5
 
+/*
 const FD_ADC: u8 = 0x01;  // PE0
 const FV_ADC: u8 = 0x02;  // PE1
 const FBI_ADC: u8 = 0x04; // PE2
@@ -27,7 +28,7 @@ const ERR_LATCHN: u8 = 0x20; // PL5
 const BTNN: u8 = 0x80;       // PL7
 const ERR_RESN: u8 = 0x01;   // PQ0
 */
-//const PWM_LOAD: u16 = (/*pwmclk*/120_000_000u32 / /*freq*/100_000) as u16;
+const PWM_LOAD: u16 = (/*pwmclk*/120_000_000u32 / /*freq*/100_000) as u16; //PWM period is 1200 clock ticks
 const UART_DIV: u32 = (((/*sysclk*/120_000_000 * 8) / /*baud*/115200) + 1) / 2;
 /*
 
@@ -82,6 +83,27 @@ pub fn set_led3(state: bool) {
     });
 }
 
+pub fn set_hv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._0_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
+
+pub fn set_fv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._1_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
+
+//* set FBV PWM frequency, the duty cycle is set in clock ticks
+pub fn set_fbv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._2_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
 
 pub fn init() {
     cortex_m::interrupt::free(|_cs| {
@@ -168,5 +190,43 @@ pub fn init() {
         gpio_n.dir.write(|w| w.dir().bits(LED3));
         gpio_n.den.write(|w| w.den().bits(LED3));
         
+        // Set up PWMs
+        let gpio_f = unsafe { &*tm4c129x::GPIO_PORTF_AHB::ptr() };
+        gpio_f.dir.write(|w| w.dir().bits(HV_PWM|FV_PWM));
+        gpio_f.den.write(|w| w.den().bits(HV_PWM|FV_PWM));
+        gpio_f.afsel.write(|w| w.afsel().bits(HV_PWM|FV_PWM));
+        gpio_f.pctl.write(|w| unsafe { w.pmc0().bits(6).pmc2().bits(6) });
+
+        let gpio_g = unsafe { &*tm4c129x::GPIO_PORTG_AHB::ptr() };
+        gpio_g.dir.write(|w| w.dir().bits(FBV_PWM));
+        gpio_g.den.write(|w| w.den().bits(FBV_PWM));
+        gpio_g.afsel.write(|w| w.afsel().bits(FBV_PWM));
+        gpio_g.pctl.write(|w| unsafe { w.pmc0().bits(6) });
+
+        sysctl.rcgcpwm.modify(|_, w| w.r0().bit(true));
+        while !sysctl.prpwm.read().r0().bit() {}
+
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        // HV_PWM
+        pwm0._0_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._0_load.write(|w| w.load().bits(PWM_LOAD)); //defines period of the PWM signal
+        pwm0._0_cmpa.write(|w| w.compa().bits(0));
+        pwm0._0_ctl.write(|w| w.enable().bit(true));
+        // FV_PWM
+        pwm0._1_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._1_load.write(|w| w.load().bits(PWM_LOAD));
+        pwm0._1_cmpa.write(|w| w.compa().bits(0));
+        pwm0._1_ctl.write(|w| w.enable().bit(true));
+        // FBV_PWM
+        pwm0._2_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._2_load.write(|w| w.load().bits(PWM_LOAD));
+        pwm0._2_cmpa.write(|w| w.compa().bits(0));
+        pwm0._2_ctl.write(|w| w.enable().bit(true));
+        // Enable all at once
+        pwm0.enable.write(|w| {
+            w.pwm0en().bit(true)
+             .pwm2en().bit(true)
+             .pwm4en().bit(true)
+        });
     });
 }

@@ -86,6 +86,12 @@ fn main() -> ! {
     syst.enable_counter();
     syst.enable_interrupt();
 
+    let duty:u16 = 10; //PWM period is 1200 clock ticks
+    board::set_fbv_pwm(duty);        
+    board::set_hv_pwm(duty);
+    board::set_fv_pwm(duty);
+    println!("FBV, FV, HV duty cycle = {}\r", duty);
+
     loop {     
         /*  
         board::set_led(true);
