@@ -1,16 +1,26 @@
 use cortex_m;
+//use cortex_m;
 use tm4c129x;
 
+use i2c;
+use i2c::i2c2_master_init;
 
-pub const LED1: u8 = 0x10; // PK4 //red LED
-pub const LED2: u8 = 0x40; // PK6 //green LED
+pub const LED1: u8 = 0b0100_0000; // PK6 //red LED
+pub const LED2: u8 = 0x10; // PK4 //green LED
 
 pub const  LED3: u8 = 0x01; //PN0
-/*
+
 const HV_PWM: u8 = 0x01;  // PF0
 const FV_PWM: u8 = 0x04;  // PF2
 const FBV_PWM: u8 = 0x01; // PD5
 
+pub const SDA2:u8 = 0b0001_0000; //PN4
+pub const SCL2:u8 = 0b0010_0000; //PN5
+
+pub const SDA0:u8 = 0b0000_0100; //PB2
+pub const SCL0:u8 = 0b0000_1000; //PB3
+
+/*
 const FD_ADC: u8 = 0x01;  // PE0
 const FV_ADC: u8 = 0x02;  // PE1
 const FBI_ADC: u8 = 0x04; // PE2
@@ -27,8 +37,15 @@ const ERR_LATCHN: u8 = 0x20; // PL5
 const BTNN: u8 = 0x80;       // PL7
 const ERR_RESN: u8 = 0x01;   // PQ0
 */
-//const PWM_LOAD: u16 = (/*pwmclk*/120_000_000u32 / /*freq*/100_000) as u16;
+const PWM_LOAD: u16 = (/*pwmclk*/120_000_000u32 / /*freq*/100_000) as u16; //PWM period is 1200 clock ticks
 const UART_DIV: u32 = (((/*sysclk*/120_000_000 * 8) / /*baud*/115200) + 1) / 2;
+//const I2C_FREQ:u32 = 100000;
+//const I2C_FREQ:u32 = 200000;
+const I2C_FREQ:u32 = 200000;
+pub const I2C_DIV: u32 = ((/*sysclk*/120_000_000 ) / /*baud*/(2*(6+4)*I2C_FREQ) - 1);
+
+//pub const DISP_I2C_ADDR: u8 = 00111110;
+pub const DISP_I2C_ADDR: u8 = 0b00111100;
 /*
 
 pub const AV_ADC_GAIN: f32 = 6.792703150912105;
@@ -82,6 +99,28 @@ pub fn set_led3(state: bool) {
     });
 }
 
+pub fn set_hv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._0_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
+
+pub fn set_fv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._1_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
+
+//* set FBV PWM frequency, the duty cycle is set in clock ticks
+pub fn set_fbv_pwm(duty: u16) {
+    cortex_m::interrupt::free(|_cs| {
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        pwm0._2_cmpa.write(|w| w.compa().bits(duty));
+    });
+}
+
 
 pub fn init() {
     cortex_m::interrupt::free(|_cs| {
@@ -127,7 +166,7 @@ pub fn init() {
              .r6().bit(true)
              .r9().bit(true) //port K, LED1, LED2
              .r10().bit(true)
-             .r12().bit(true) //port N
+             .r12().bit(true) //port N (I2C mod 2)
              .r13().bit(true)
              .r14().bit(true)
         });
@@ -165,8 +204,71 @@ pub fn init() {
         gpio_k.den.write(|w| w.den().bits(LED1|LED2));
 
         let gpio_n = unsafe { &*tm4c129x::GPIO_PORTN::ptr() };
-        gpio_n.dir.write(|w| w.dir().bits(LED3));
-        gpio_n.den.write(|w| w.den().bits(LED3));
+        //gpio_n.dir.write(|w| w.dir().bits(LED3|SDA2|SCL2));
+        //gpio_n.den.write(|w| w.den().bits(LED3|SDA2|SCL2));
+        gpio_n.dir.write(|w| w.dir().bits(LED3|SDA2|SCL2));
+        gpio_n.den.write(|w| w.den().bits(LED3|SDA2|SCL2));
+
+        // Set up I2C
+        i2c::i2c2_master_init();
+        //gpio_k.data.modify(|r, w| w.data().bits(r.data().bits() | LED1)); //clear red LED1
+        //i2c0_slave_init();
+
         
+
+
+        // Set up PWMs
+        let gpio_f = unsafe { &*tm4c129x::GPIO_PORTF_AHB::ptr() };
+        gpio_f.dir.write(|w| w.dir().bits(HV_PWM|FV_PWM));
+        gpio_f.den.write(|w| w.den().bits(HV_PWM|FV_PWM));
+        gpio_f.afsel.write(|w| w.afsel().bits(HV_PWM|FV_PWM));
+        gpio_f.pctl.write(|w| unsafe { w.pmc0().bits(6).pmc2().bits(6) });
+
+        let gpio_g = unsafe { &*tm4c129x::GPIO_PORTG_AHB::ptr() };
+        gpio_g.dir.write(|w| w.dir().bits(FBV_PWM));
+        gpio_g.den.write(|w| w.den().bits(FBV_PWM));
+        gpio_g.afsel.write(|w| w.afsel().bits(FBV_PWM));
+        gpio_g.pctl.write(|w| unsafe { w.pmc0().bits(6) });
+
+        sysctl.rcgcpwm.modify(|_, w| w.r0().bit(true));
+        while !sysctl.prpwm.read().r0().bit() {}
+
+        let pwm0 = unsafe { &*tm4c129x::PWM0::ptr() };
+        // HV_PWM
+        pwm0._0_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._0_load.write(|w| w.load().bits(PWM_LOAD)); //defines period of the PWM signal
+        pwm0._0_cmpa.write(|w| w.compa().bits(0));
+        pwm0._0_ctl.write(|w| w.enable().bit(true));
+        // FV_PWM
+        pwm0._1_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._1_load.write(|w| w.load().bits(PWM_LOAD));
+        pwm0._1_cmpa.write(|w| w.compa().bits(0));
+        pwm0._1_ctl.write(|w| w.enable().bit(true));
+        // FBV_PWM
+        pwm0._2_gena.write(|w| w.actload().zero().actcmpad().one());
+        pwm0._2_load.write(|w| w.load().bits(PWM_LOAD));
+        pwm0._2_cmpa.write(|w| w.compa().bits(0));
+        pwm0._2_ctl.write(|w| w.enable().bit(true));
+        // Enable all at once
+        pwm0.enable.write(|w| {
+            w.pwm0en().bit(true)
+             .pwm2en().bit(true)
+             .pwm4en().bit(true)
+        });
     });
+}
+
+
+pub fn delay_us(us: u32){
+    let count = us*120;   
+    cortex_m::asm::delay(us*120); //for 120_000_000 Hz clk
+    /*
+    for i in 0..count {
+        cortex_m::asm::nop();
+    }
+    */
+}
+
+fn lcd_command(value:u8, slave_addr:u8) {
+    i2c::i2c_transmit_2bytes(0x00, value, slave_addr);
 }
