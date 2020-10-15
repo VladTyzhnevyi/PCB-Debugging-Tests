@@ -14,19 +14,4 @@ the VDD, 3V and 3.3V voltage have different register settings.
 Another is connected between pins 2 and 3 (CAP1N and CAP1P correspondingly)
 3. Pin 5 - ground, Pin 6 - SDA, Pin 7 - SCl. Pin 8 - RST **this pin has to be pulled up** 
 the display won't work otherwise
-
-These settings have to be applied once to the "root" folder, i.e., IonPak. In case there is a doubt that the settings are valid for the current folder, use **$ rustup show**. The current settings are:
-
-installed targets for active toolchain
---------------------------------------
-
-thumbv7em-none-eabihf
-x86_64-unknown-linux-gnu
-
-active toolchain
-----------------
-
-**nightly-2018-12-01-x86_64-unknown-linux-gnu** (directory override for '/home/vt/ionpak/PCB-Debugging-Tests/master-uart-test')
-**rustc 1.32.0-nightly (d09466ceb 2018-11-30)**
-
-They work fine, and the project can be compiled without problems. Important is that the rust compiler is **nightly** and that the target is **thumbv7em-none-eabihf**
+4. Backlight LED needs 3.0V or 3.3V
